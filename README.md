@@ -109,40 +109,6 @@ Use this repository as a Railway service. `Procfile` is included:
 worker: python -u openpotd.py
 ```
 
-### Required Railway variables
-
-- `DISCORD_TOKEN=<your token>`
-
-### Recommended Railway variables
-
-- `TZ=Australia/Sydney` (or your posting timezone)
-- `OPENPOTD_DATA_DIR=/app/data` (when using a mounted volume)
-- `OPENPOTD_CONFIG_DIR=/app/config` (only if you intentionally externalize config)
-
-### Persistent storage
-
-Mount a volume and keep the SQLite DB under that mount (for example `/app/data`).
-Without persistent storage, season/problem/submission state is lost on redeploy/restart.
-
-### Deploy checklist
-
-1. Set env vars.
-2. Attach persistent volume.
-3. Deploy.
-4. Check logs for:
-   - successful Discord login,
-   - cog load messages,
-   - app command sync for your guilds.
-5. In Discord, run `/config` and `/post_problem` on a test problem.
-
-## Environment Variables
-
-- `DISCORD_TOKEN` (or custom `token_env_var` in config): bot token
-- `OPENPOTD_DATA_DIR`: override default `./data`
-- `OPENPOTD_CONFIG_DIR`: override default `./config`
-
-If no token env var is set, bot reads the token file configured by `token` (default `config/token.txt`).
-
 ## Tests
 
 ```sh
