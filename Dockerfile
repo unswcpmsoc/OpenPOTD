@@ -11,4 +11,6 @@ RUN python -m pip install --no-cache-dir -r requirements.txt
 # Copy bot source
 COPY . .
 
+VOLUME ["/app/data"]
+
 CMD ["python", "openpotd.py"]
