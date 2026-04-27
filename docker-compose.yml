@@ -1,14 +1,18 @@
-version: "3.8"
-
 services:
-  discord-bot:
-    build: .
-    container_name: discord-bot
+  openpotd:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: openpotd:latest
     restart: unless-stopped
-    env_file:
-      - .env
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN:-}
+      OPENPOTD_DATA_DIR: /app/data
+      OPENPOTD_CONFIG_DIR: /app/config
     volumes:
       - openpotd_data:/app/data
+      - openpotd_config:/app/config
 
 volumes:
   openpotd_data:
+  openpotd_config:

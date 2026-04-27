@@ -101,6 +101,48 @@ Minimum practical permissions in posting/review channels:
 
 If posting fails with `Missing Permissions (50013)`, check that channel-level overrides did not remove one of these.
 
+## Deployment (Docker Compose)
+
+This repository includes a production-ready Docker Compose setup.
+
+1. Create `.env` (example):
+
+```env
+DISCORD_TOKEN=your_discord_bot_token
+```
+
+2. Start the service:
+
+```sh
+docker compose up -d --build
+```
+
+3. Stop without deleting data:
+
+```sh
+docker compose down
+```
+
+Compose defines two named volumes:
+
+- `openpotd_data` mounted at `/app/data` (contains `data.db`)
+- `openpotd_config` mounted at `/app/config` (contains `config.yml`, `token.txt`, etc.)
+
+On first run, if `/app/config/config.yml` does not exist, the bot copies `default_config.yml` into that location automatically.
+
+Important:
+
+- `docker compose down -v` removes named volumes and deletes persistent data/config.
+
+## Deployment (Coolify using Compose)
+
+1. In Coolify, create a Docker Compose service pointing to this repository.
+2. Use [docker-compose.yml](docker-compose.yml) as the compose file.
+3. Add `DISCORD_TOKEN` as an environment variable/secret in Coolify.
+4. Deploy.
+
+Coolify will reuse the compose-defined named volumes, so data survives redeploys.
+
 ## Deployment (Railway)
 
 Use this repository as a Railway service. `Procfile` is included:

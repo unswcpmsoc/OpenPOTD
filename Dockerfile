@@ -1,16 +1,27 @@
 FROM python:3.11-slim
 
+ENV PYTHONDONTWRITEBYTECODE=1 \
+	PYTHONUNBUFFERED=1 \
+	PIP_NO_CACHE_DIR=1
+
 WORKDIR /app
 
-# Install dependencies first (better caching)
+# Install dependencies first for better layer caching.
 COPY requirements.txt .
+RUN python -m pip install --upgrade pip \
+	&& python -m pip install -r requirements.txt
 
-RUN python -m pip install --upgrade pip
-RUN python -m pip install --no-cache-dir -r requirements.txt
-
-# Copy bot source
+# Copy bot source.
 COPY . .
 
-VOLUME ["/app/data"]
+# Run as non-root and ensure runtime directories are writable.
+RUN addgroup --system openpotd \
+	&& adduser --system --ingroup openpotd openpotd \
+	&& mkdir -p /app/data /app/config \
+	&& chown -R openpotd:openpotd /app
 
-CMD ["python", "openpotd.py"]
+USER openpotd
+
+VOLUME ["/app/data", "/app/config"]
+
+CMD ["python", "-u", "openpotd.py"]
