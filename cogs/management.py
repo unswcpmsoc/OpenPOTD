@@ -726,6 +726,42 @@ class Management(commands.Cog):
             await interaction.response.send_message(f'Added problem. ID: `{cursor.lastrowid}`.', ephemeral=True)
         self.logger.info(f'{interaction.user.id} added a new problem. ')
 
+    def _subproblem_exists(self, subproblem_id: int) -> bool:
+        cursor = self.bot.db.cursor()
+        cursor.execute('SELECT EXISTS (SELECT 1 FROM subproblems WHERE id = ?)', (subproblem_id,))
+        return bool(cursor.fetchone()[0])
+
+    def _fetch_linked_image_ids(self, table_name: str, foreign_key: str, target_id: int):
+        cursor = self.bot.db.cursor()
+        cursor.execute(
+            f'SELECT id FROM {table_name} WHERE {foreign_key} = ? ORDER BY id ASC',
+            (target_id,),
+        )
+        return [row[0] for row in cursor.fetchall()]
+
+    def _remove_linked_image_by_index(
+            self,
+            table_name: str,
+            foreign_key: str,
+            target_id: int,
+            index: int = None):
+        image_ids = self._fetch_linked_image_ids(table_name, foreign_key, target_id)
+        if len(image_ids) == 0:
+            return False, 'No linked images found.'
+
+        if index is None:
+            remove_position = len(image_ids)  # default to last image
+        else:
+            remove_position = index
+            if remove_position < 1 or remove_position > len(image_ids):
+                return False, f'Image index must be between 1 and {len(image_ids)}.'
+
+        image_row_id = image_ids[remove_position - 1]
+        cursor = self.bot.db.cursor()
+        cursor.execute(f'DELETE FROM {table_name} WHERE id = ?', (image_row_id,))
+        self.bot.db.commit()
+        return True, f'Removed image `{remove_position}` (row `{image_row_id}`). `{len(image_ids) - 1}` remaining.'
+
     @commands.command()
     @commands.check(authorised)
     async def linkimg(self, ctx, problem: shared.POTD):
@@ -801,6 +837,170 @@ class Management(commands.Cog):
         cursor.execute('INSERT INTO images (potd_id, image) VALUES (?, ?)', (problem_id, sqlite3.Binary(content)))
         self.bot.db.commit()
         await interaction.response.send_message(f'Linked image to problem `{problem_id}`.', ephemeral=True)
+
+    @commands.command(name='list_imgs')
+    @commands.check(authorised)
+    async def list_imgs(self, ctx, *, problem: shared.POTD):
+        image_ids = self._fetch_linked_image_ids('images', 'potd_id', problem.id)
+        if len(image_ids) == 0:
+            await ctx.send(f'Problem `{problem.id}` has no linked images.')
+            return
+
+        lines = [f'`{idx}` -> row `{row_id}`' for idx, row_id in enumerate(image_ids, start=1)]
+        await ctx.send(f'Problem `{problem.id}` image list ({len(image_ids)} total):\n' + '\n'.join(lines))
+
+    @app_commands.command(name='list_imgs', description='List linked images for a problem.')
+    async def list_imgs_slash(self, interaction: discord.Interaction, problem_id: int):
+        if not interaction.user or not self._is_authorised_user(interaction.user.id):
+            await interaction.response.send_message('You are not authorised to use this command.', ephemeral=True)
+            return
+
+        cursor = self.bot.db.cursor()
+        cursor.execute('SELECT EXISTS (SELECT 1 FROM problems WHERE id = ?)', (problem_id,))
+        if not cursor.fetchone()[0]:
+            await interaction.response.send_message(f'No problem with ID `{problem_id}`.', ephemeral=True)
+            return
+
+        image_ids = self._fetch_linked_image_ids('images', 'potd_id', problem_id)
+        if len(image_ids) == 0:
+            await interaction.response.send_message(f'Problem `{problem_id}` has no linked images.', ephemeral=True)
+            return
+
+        lines = [f'`{idx}` -> row `{row_id}`' for idx, row_id in enumerate(image_ids, start=1)]
+        await interaction.response.send_message(
+            f'Problem `{problem_id}` image list ({len(image_ids)} total):\n' + '\n'.join(lines),
+            ephemeral=True,
+        )
+
+    @commands.command(name='remove_img')
+    @commands.check(authorised)
+    async def remove_img(self, ctx, problem: shared.POTD, index: int = None):
+        ok, details = self._remove_linked_image_by_index('images', 'potd_id', problem.id, index)
+        await ctx.send(details if ok else f'Could not remove image: {details}')
+
+    @app_commands.command(name='remove_img', description='Remove one linked image from a problem.')
+    @app_commands.describe(
+        problem_id='Problem ID',
+        index='1-based image index; omit to remove the last image',
+    )
+    async def remove_img_slash(self, interaction: discord.Interaction, problem_id: int, index: int = None):
+        if not interaction.user or not self._is_authorised_user(interaction.user.id):
+            await interaction.response.send_message('You are not authorised to use this command.', ephemeral=True)
+            return
+
+        cursor = self.bot.db.cursor()
+        cursor.execute('SELECT EXISTS (SELECT 1 FROM problems WHERE id = ?)', (problem_id,))
+        if not cursor.fetchone()[0]:
+            await interaction.response.send_message(f'No problem with ID `{problem_id}`.', ephemeral=True)
+            return
+
+        ok, details = self._remove_linked_image_by_index('images', 'potd_id', problem_id, index)
+        await interaction.response.send_message(
+            details if ok else f'Could not remove image: {details}',
+            ephemeral=True,
+        )
+
+    @commands.command(name='list_subimgs')
+    @commands.check(authorised)
+    async def list_subimgs(self, ctx, subproblem_id: int):
+        if not self._subproblem_exists(subproblem_id):
+            await ctx.send(f'No subproblem with ID `{subproblem_id}`.')
+            return
+
+        image_ids = self._fetch_linked_image_ids('subproblem_images', 'subproblem_id', subproblem_id)
+        if len(image_ids) == 0:
+            await ctx.send(f'Subproblem `{subproblem_id}` has no linked images.')
+            return
+
+        lines = [f'`{idx}` -> row `{row_id}`' for idx, row_id in enumerate(image_ids, start=1)]
+        await ctx.send(f'Subproblem `{subproblem_id}` image list ({len(image_ids)} total):\n' + '\n'.join(lines))
+
+    @app_commands.command(name='list_subimgs', description='List linked images for a subproblem.')
+    async def list_subimgs_slash(self, interaction: discord.Interaction, subproblem_id: int):
+        if not interaction.user or not self._is_authorised_user(interaction.user.id):
+            await interaction.response.send_message('You are not authorised to use this command.', ephemeral=True)
+            return
+
+        if not self._subproblem_exists(subproblem_id):
+            await interaction.response.send_message(f'No subproblem with ID `{subproblem_id}`.', ephemeral=True)
+            return
+
+        image_ids = self._fetch_linked_image_ids('subproblem_images', 'subproblem_id', subproblem_id)
+        if len(image_ids) == 0:
+            await interaction.response.send_message(
+                f'Subproblem `{subproblem_id}` has no linked images.',
+                ephemeral=True,
+            )
+            return
+
+        lines = [f'`{idx}` -> row `{row_id}`' for idx, row_id in enumerate(image_ids, start=1)]
+        await interaction.response.send_message(
+            f'Subproblem `{subproblem_id}` image list ({len(image_ids)} total):\n' + '\n'.join(lines),
+            ephemeral=True,
+        )
+
+    @commands.command(name='remove_subimg')
+    @commands.check(authorised)
+    async def remove_subimg(self, ctx, subproblem_id: int, index: int = None):
+        if not self._subproblem_exists(subproblem_id):
+            await ctx.send(f'No subproblem with ID `{subproblem_id}`.')
+            return
+        ok, details = self._remove_linked_image_by_index('subproblem_images', 'subproblem_id', subproblem_id, index)
+        await ctx.send(details if ok else f'Could not remove image: {details}')
+
+    @app_commands.command(name='remove_subimg', description='Remove one linked image from a subproblem.')
+    @app_commands.describe(
+        subproblem_id='Subproblem ID',
+        index='1-based image index; omit to remove the last image',
+    )
+    async def remove_subimg_slash(self, interaction: discord.Interaction, subproblem_id: int, index: int = None):
+        if not interaction.user or not self._is_authorised_user(interaction.user.id):
+            await interaction.response.send_message('You are not authorised to use this command.', ephemeral=True)
+            return
+
+        if not self._subproblem_exists(subproblem_id):
+            await interaction.response.send_message(f'No subproblem with ID `{subproblem_id}`.', ephemeral=True)
+            return
+
+        ok, details = self._remove_linked_image_by_index('subproblem_images', 'subproblem_id', subproblem_id, index)
+        await interaction.response.send_message(
+            details if ok else f'Could not remove image: {details}',
+            ephemeral=True,
+        )
+
+    @commands.command(name='clear_subimgs')
+    @commands.check(authorised)
+    async def clear_subimgs(self, ctx, subproblem_id: int):
+        if not self._subproblem_exists(subproblem_id):
+            await ctx.send(f'No subproblem with ID `{subproblem_id}`.')
+            return
+
+        cursor = self.bot.db.cursor()
+        cursor.execute('SELECT COUNT(1) FROM subproblem_images WHERE subproblem_id = ?', (subproblem_id,))
+        existing = cursor.fetchone()[0]
+        cursor.execute('DELETE FROM subproblem_images WHERE subproblem_id = ?', (subproblem_id,))
+        self.bot.db.commit()
+        await ctx.send(f'Cleared `{existing}` image(s) from subproblem `{subproblem_id}`.')
+
+    @app_commands.command(name='clear_subimgs', description='Remove all linked images from a subproblem.')
+    async def clear_subimgs_slash(self, interaction: discord.Interaction, subproblem_id: int):
+        if not interaction.user or not self._is_authorised_user(interaction.user.id):
+            await interaction.response.send_message('You are not authorised to use this command.', ephemeral=True)
+            return
+
+        if not self._subproblem_exists(subproblem_id):
+            await interaction.response.send_message(f'No subproblem with ID `{subproblem_id}`.', ephemeral=True)
+            return
+
+        cursor = self.bot.db.cursor()
+        cursor.execute('SELECT COUNT(1) FROM subproblem_images WHERE subproblem_id = ?', (subproblem_id,))
+        existing = cursor.fetchone()[0]
+        cursor.execute('DELETE FROM subproblem_images WHERE subproblem_id = ?', (subproblem_id,))
+        self.bot.db.commit()
+        await interaction.response.send_message(
+            f'Cleared `{existing}` image(s) from subproblem `{subproblem_id}`.',
+            ephemeral=True,
+        )
 
     @commands.command(name='link_thread')
     @commands.check(authorised)
