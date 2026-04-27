@@ -10,9 +10,5 @@ services:
       OPENPOTD_DATA_DIR: /app/data
       OPENPOTD_CONFIG_DIR: /app/config
     volumes:
-      - openpotd_data:/app/data
-      - openpotd_config:/app/config
-
-volumes:
-  openpotd_data:
-  openpotd_config:
+      - ./data:/app/data
+      - ./config:/app/config
